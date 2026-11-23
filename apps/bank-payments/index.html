@@ -1,0 +1,274 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Обработка банковских платежей</title>
+<style>
+  :root {
+    --bg: #f5f6f8; --panel: #fff; --text: #1d2330; --muted: #6b7280; --line: #e3e6eb;
+    --accent: #2457d6; --accent-weak: #e8eefc; --green: #157f3b; --green-weak: #e3f4e8;
+    --amber: #a15c00; --amber-weak: #fdf1dc; --red: #b42318; --red-weak: #fde8e6; --gray-weak: #eef0f3;
+    --radius: 8px;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; font: 14px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Thai", sans-serif; background: var(--bg); color: var(--text); }
+  header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 10px 20px; display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; position: sticky; top: 0; z-index: 25; }
+  header h1 { font-size: 17px; margin: 0; font-weight: 650; }
+  nav { display: flex; gap: 4px; }
+  nav button { background: none; border: 0; padding: 7px 12px; border-radius: 6px; font: inherit; color: var(--muted); cursor: pointer; }
+  nav button.active { background: var(--accent-weak); color: var(--accent); font-weight: 600; }
+  nav .count { display: inline-block; min-width: 18px; padding: 0 5px; margin-left: 4px; border-radius: 9px; background: var(--amber-weak); color: var(--amber); font-size: 12px; text-align: center; }
+  header .spacer { flex: 1; }
+  main { padding: 20px; max-width: 1500px; margin: 0 auto; }
+  .panel { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 16px; margin-bottom: 16px; }
+  .panel h2 { font-size: 15px; margin: 0 0 12px; }
+  .muted { color: var(--muted); }
+  .small { font-size: 12px; }
+  button, .btn { font: inherit; border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 6px; cursor: pointer; white-space: nowrap; }
+  button:hover { border-color: #c3c8d0; }
+  button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  button.primary:hover { background: #1c47b3; }
+  button.danger { color: var(--red); }
+  button.link { border: 0; background: none; padding: 0; color: var(--accent); }
+  button.link.danger { color: var(--red); }
+  .menu { position: relative; }
+  .menu summary { list-style: none; }
+  .menu summary::-webkit-details-marker { display: none; }
+  .menu-list { position: absolute; right: 0; top: calc(100% + 4px); background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); box-shadow: 0 8px 24px rgba(0,0,0,.1); padding: 4px; display: flex; flex-direction: column; min-width: 230px; z-index: 40; }
+  .menu-list button { border: 0; text-align: left; }
+  .menu-list button:hover { background: var(--bg); }
+  nav button { white-space: nowrap; }
+  button:disabled { opacity: .5; cursor: default; }
+  input, select, textarea { font: inherit; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; background: #fff; color: var(--text); }
+  input:focus, select:focus, textarea:focus, button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+  textarea { width: 100%; min-height: 90px; font-family: ui-monospace, Menlo, Consolas, monospace; font-size: 12px; }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grow { flex: 1; }
+  .drop { border: 2px dashed #c3c8d0; border-radius: var(--radius); padding: 28px; text-align: center; color: var(--muted); cursor: pointer; }
+  .drop.over { border-color: var(--accent); background: var(--accent-weak); color: var(--accent); }
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-size: 12px; font-weight: 600; color: var(--muted); background: #fafbfc; position: sticky; top: 0; }
+  td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  tr.clickable { cursor: pointer; }
+  tr.clickable:hover td { background: #f7f9fd; }
+  tr.selected td { background: var(--accent-weak) !important; }
+  .table-wrap { overflow: auto; max-height: calc(100vh - 320px); border: 1px solid var(--line); border-radius: var(--radius); }
+  .pos { color: var(--green); }
+  .neg { color: var(--red); }
+  .desc { max-width: 420px; overflow-wrap: anywhere; }
+  .badge { display: inline-block; padding: 1px 8px; border-radius: 10px; font-size: 12px; font-weight: 600; white-space: nowrap; }
+  .b-new { background: var(--gray-weak); color: #374151; }
+  .b-review { background: var(--amber-weak); color: var(--amber); }
+  .b-matched, .b-done, .b-paid { background: var(--green-weak); color: var(--green); }
+  .b-ignored { background: var(--gray-weak); color: var(--muted); font-weight: 400; }
+  .b-partial { background: var(--amber-weak); color: var(--amber); }
+  .b-overdue { background: var(--red-weak); color: var(--red); }
+  .b-open { background: var(--gray-weak); color: #374151; }
+  .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 12px; margin-bottom: 16px; }
+  .card { background: var(--panel); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; }
+  .card .label { font-size: 12px; color: var(--muted); }
+  .card .value { font-size: 20px; font-weight: 650; font-variant-numeric: tabular-nums; margin-top: 2px; }
+  .card button.link { font-size: 12px; }
+  .mapping-table td, .mapping-table th { white-space: nowrap; max-width: 220px; overflow: hidden; text-overflow: ellipsis; font-size: 12px; }
+  .mapping-table select { font-size: 12px; padding: 3px 4px; max-width: 180px; }
+  .msg { padding: 8px 12px; border-radius: 6px; margin: 8px 0; }
+  .msg.ok { background: var(--green-weak); color: var(--green); }
+  .msg.warn { background: var(--amber-weak); color: var(--amber); }
+  .msg.err { background: var(--red-weak); color: var(--red); }
+  .msg ul { margin: 4px 0 0; padding-left: 18px; }
+  .drawer { position: fixed; top: var(--header-h, 58px); right: 0; bottom: 0; width: min(520px, 100%); background: var(--panel); border-left: 1px solid var(--line); box-shadow: -8px 0 24px rgba(0,0,0,.08); padding: 18px; overflow: auto; z-index: 20; transform: translateX(100%); transition: transform .15s ease; }
+  .drawer.open { transform: none; }
+  .drawer h3 { margin: 0 0 4px; font-size: 16px; }
+  .drawer dl { display: grid; grid-template-columns: 120px 1fr; gap: 4px 12px; margin: 12px 0; }
+  .drawer dt { color: var(--muted); }
+  .drawer dd { margin: 0; overflow-wrap: anywhere; }
+  .cand { border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; margin: 6px 0; display: flex; gap: 10px; align-items: center; }
+  .cand.suggested { border-color: var(--amber); background: #fffaf0; }
+  .score { font-weight: 700; font-variant-numeric: tabular-nums; width: 34px; text-align: center; }
+  .bulk { background: var(--accent-weak); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; }
+  .hidden { display: none !important; }
+  .empty { text-align: center; padding: 40px; color: var(--muted); }
+  .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1d2330; color: #fff; padding: 10px 16px; border-radius: 6px; z-index: 30; opacity: 0; transition: opacity .2s; pointer-events: none; }
+  .toast.show { opacity: 1; }
+  kbd { font-size: 11px; border: 1px solid var(--line); border-bottom-width: 2px; border-radius: 4px; padding: 0 4px; background: #fafbfc; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Банковские платежи</h1>
+  <nav id="tabs">
+    <button data-tab="import">1. Выписки</button>
+    <button data-tab="tx">2. Платежи <span class="count hidden" id="reviewCount"></span></button>
+    <button data-tab="expected">3. Ожидаемые поступления</button>
+    <button data-tab="rules">4. Правила</button>
+  </nav>
+  <div class="spacer"></div>
+  <details class="menu" id="menu">
+    <summary class="btn">Данные ▾</summary>
+    <div class="menu-list">
+      <button id="demoBtn" title="Загрузить вымышленные данные для пробы">Загрузить демо-данные</button>
+      <button id="backupBtn" title="Сохранить всё в JSON-файл">Скачать резервную копию</button>
+      <button id="restoreBtn" title="Загрузить из JSON-файла">Восстановить из копии…</button>
+      <button id="resetBtn" class="danger">Очистить всё</button>
+    </div>
+  </details>
+  <input type="file" id="restoreFile" accept=".json" class="hidden">
+</header>
+
+<main>
+  <!-- 1. Загрузка -->
+  <section id="tab-import" class="tab">
+    <div class="panel">
+      <h2>Файл выписки</h2>
+      <div class="drop" id="drop">
+        Перетащите сюда выписку (<b>CSV</b>, <b>TXT</b>, <b>XLSX/XLS</b>) или <u>нажмите, чтобы выбрать файл</u>
+        <div class="small" style="margin-top:6px">Файл обрабатывается только в этом браузере и никуда не отправляется.</div>
+      </div>
+      <input type="file" id="file" accept=".csv,.txt,.tsv,.xlsx,.xls" class="hidden">
+      <details style="margin-top:12px">
+        <summary class="muted">…или вставьте таблицу из Excel / интернет-банка</summary>
+        <textarea id="paste" placeholder="Скопируйте строки вместе с заголовком и вставьте сюда"></textarea>
+        <button id="pasteBtn" style="margin-top:6px">Разобрать вставленное</button>
+      </details>
+      <div id="importMsg"></div>
+    </div>
+
+    <div class="panel hidden" id="mappingPanel">
+      <h2>Сопоставление колонок</h2>
+      <p class="muted small" style="margin-top:-6px">Колонки определены автоматически — проверьте и поправьте при необходимости. Нужны минимум «Дата» и «Сумма» (или «Приход»/«Расход»).</p>
+      <div class="row" style="margin-bottom:10px">
+        <label>Счёт / банк <input id="accountName" placeholder="напр. KBank 123-4-56789-0" size="28"></label>
+        <label>Строка заголовка <input id="headerRow" type="number" min="1" style="width:70px"></label>
+        <label>Формат даты
+          <select id="dateOrder"><option value="dmy">ДД/ММ/ГГГГ</option><option value="mdy">ММ/ДД/ГГГГ</option></select>
+        </label>
+        <label>Валюта <input id="currency" value="THB" size="5"></label>
+      </div>
+      <div class="table-wrap" style="max-height:340px"><table class="mapping-table" id="mappingTable"></table></div>
+      <div class="row" style="margin-top:12px">
+        <button class="primary" id="doImport">Импортировать</button>
+        <button id="cancelImport">Отмена</button>
+        <span class="muted small" id="previewInfo"></span>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2>Загруженные выписки</h2>
+      <div id="importsList"></div>
+    </div>
+  </section>
+
+  <!-- 2. Платежи -->
+  <section id="tab-tx" class="tab hidden">
+    <div class="cards" id="cards"></div>
+    <div class="panel">
+      <div class="row" style="margin-bottom:10px">
+        <input id="q" class="grow" placeholder="Поиск: назначение, контрагент, референс, код…  ( / )" style="min-width:220px">
+        <select id="fStatus">
+          <option value="">Все статусы</option>
+          <option value="todo">Требуют действия</option>
+          <option value="new">Новые</option>
+          <option value="review">На проверке</option>
+          <option value="matched">Сопоставлены</option>
+          <option value="done">Обработаны</option>
+          <option value="ignored">Игнор</option>
+        </select>
+        <select id="fDir"><option value="">Приход и расход</option><option value="in">Только приход</option><option value="out">Только расход</option></select>
+        <select id="fCat"></select>
+        <input type="date" id="fFrom" title="С даты">
+        <input type="date" id="fTo" title="По дату">
+      </div>
+      <div class="row" style="margin-bottom:10px">
+        <button class="primary" id="autoBtn" title="Найти ожидаемые платежи для новых поступлений">Автосопоставление</button>
+        <button id="rulesBtn">Применить правила</button>
+        <div class="spacer grow"></div>
+        <button id="exportTx">Экспорт CSV (по фильтру)</button>
+      </div>
+      <div class="bulk row hidden" id="bulk">
+        <b id="bulkCount"></b>
+        <select id="bulkCat"></select>
+        <button id="bulkCatBtn">Присвоить категорию</button>
+        <button id="bulkConfirm">Подтвердить предложенное</button>
+        <button id="bulkIgnore">Игнорировать</button>
+        <button id="bulkReset">Сбросить в «Новые»</button>
+        <button class="link" id="bulkClear">снять выделение</button>
+      </div>
+      <div class="table-wrap">
+        <table id="txTable"></table>
+      </div>
+      <div class="muted small" style="margin-top:6px" id="txFooter"></div>
+    </div>
+  </section>
+
+  <!-- 3. Ожидаемые -->
+  <section id="tab-expected" class="tab hidden">
+    <div class="panel">
+      <h2>Ожидаемые поступления (график платежей / выставленные счета)</h2>
+      <p class="muted small" style="margin-top:-6px">
+        CSV с колонками: <b>код</b> (юнит, договор или счёт — например <code>B-1204</code>), <b>сумма</b>, и по желанию: плательщик, проект, срок оплаты, описание.
+        Поступления из выписки сопоставляются по коду в назначении платежа, сумме, имени плательщика и дате.
+      </p>
+      <div class="row">
+        <button id="expFileBtn">Загрузить CSV…</button>
+        <input type="file" id="expFile" accept=".csv,.txt,.tsv" class="hidden">
+        <button id="expAddBtn">Добавить вручную</button>
+        <div class="spacer grow"></div>
+        <input id="expQ" placeholder="Поиск" size="20">
+        <select id="expStatus">
+          <option value="">Все</option><option value="open">Не оплачены</option><option value="partial">Частично</option>
+          <option value="overdue">Просрочены</option><option value="paid">Оплачены</option>
+        </select>
+        <button id="exportExp">Экспорт CSV</button>
+        <button id="expClear" class="danger">Удалить все</button>
+      </div>
+      <form id="expForm" class="row hidden" style="margin-top:10px">
+        <input name="code" placeholder="Код *" required size="10">
+        <input name="payer" placeholder="Плательщик" size="18">
+        <input name="project" placeholder="Проект" size="10">
+        <input name="amount" placeholder="Сумма *" required size="10">
+        <input name="due" type="date" title="Срок оплаты">
+        <input name="description" placeholder="Описание" size="18">
+        <button class="primary">Добавить</button>
+      </form>
+      <div id="expMsg"></div>
+    </div>
+    <div class="cards" id="expCards"></div>
+    <div class="panel"><div class="table-wrap"><table id="expTable"></table></div></div>
+  </section>
+
+  <!-- 4. Правила -->
+  <section id="tab-rules" class="tab hidden">
+    <div class="panel">
+      <h2>Правила автокатегоризации</h2>
+      <p class="muted small" style="margin-top:-6px">Применяются сверху вниз, срабатывает первое подходящее. Текст ищется без учёта регистра; для регулярного выражения используйте <code>/шаблон/</code>. Строки с ручными правками не затрагиваются.</p>
+      <form id="ruleForm" class="row" style="margin-bottom:10px">
+        <label>Если <select name="field"><option value="any">любое поле</option><option value="description">назначение</option><option value="counterparty">контрагент</option><option value="reference">референс</option></select></label>
+        <label>содержит <input name="text" required placeholder="напр. ELECTRICITY или /fee|комиссия/" size="26"></label>
+        <label>и это <select name="direction"><option value="any">приход/расход</option><option value="in">приход</option><option value="out">расход</option></select></label>
+        <label>→ <select name="action"><option value="categorize">категория</option><option value="ignore">игнорировать</option></select></label>
+        <select name="category" id="ruleCat"></select>
+        <button class="primary">Добавить правило</button>
+      </form>
+      <div class="table-wrap" style="max-height:none"><table id="rulesTable"></table></div>
+    </div>
+    <div class="panel">
+      <h2>Категории</h2>
+      <form id="catForm" class="row" style="margin-bottom:10px">
+        <input name="name" required placeholder="Новая категория" size="30">
+        <button>Добавить</button>
+      </form>
+      <div id="catList" class="row"></div>
+    </div>
+  </section>
+</main>
+
+<aside class="drawer" id="drawer" aria-label="Карточка платежа"></aside>
+<div class="toast" id="toast"></div>
+
+<script src="core.js"></script>
+<script src="samples/demo-data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
