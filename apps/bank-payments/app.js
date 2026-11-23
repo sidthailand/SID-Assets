@@ -1,9 +1,9 @@
-/* Интерфейс обработки банковских выписок. Данные хранятся в localStorage этого браузера. */
+/* Интерфейс обработки банковских выписок. Данные хранятся в localStorage этого браузера (если доступен). */
 (function () {
   'use strict';
   const C = window.BankCore;
   const STORE_KEY = 'sid-bank-payments-v1';
-  const XLSX_URL = 'https://cdn.sheetjs.com/xlsx-0.20.3/package/dist/xlsx.full.min.js';
+  const XLSX_URL = 'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js';
 
   const DEFAULT_CATEGORIES = [
     'Оплата от покупателя', 'Бронирование / депозит', 'Возврат покупателю', 'Подрядчики', 'Материалы',
@@ -42,11 +42,16 @@
   const today = () => new Date().toISOString().slice(0, 10);
   const uid = (p) => p + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
 
-  function load() {
-    let s = null;
-    try {
-      s = JSON.parse(localStorage.getItem(STORE_KEY));
-    } catch (e) {}
+  let storageOk = true;
+  function load(from) {
+    let s = from || null;
+    if (!from) {
+      try {
+        s = JSON.parse(localStorage.getItem(STORE_KEY));
+      } catch (e) {
+        storageOk = false;
+      }
+    }
     s = s || {};
     return {
       transactions: s.transactions || [],
@@ -62,7 +67,8 @@
     try {
       localStorage.setItem(STORE_KEY, JSON.stringify(state));
     } catch (e) {
-      toast('Не удалось сохранить: ' + e.message);
+      if (storageOk) toast('Браузер не даёт сохранить данные: они пропадут при закрытии страницы. Делайте резервную копию.');
+      storageOk = false;
     }
   }
   function toast(text) {
@@ -80,7 +86,55 @@
         : '') +
       `</div>`;
   }
-  function download(name, content, type) {
+  // Диалог внутри страницы вместо confirm()/prompt(), которые блокируются во встроенных окнах.
+  function ask(text, opts) {
+    opts = opts || {};
+    return new Promise((resolve) => {
+      const dlg = $('#dialog');
+      $('#dialogText').textContent = text;
+      const inp = $('#dialogInput');
+      inp.classList.toggle('hidden', opts.input == null);
+      inp.value = opts.input || '';
+      $('#dialogOk').textContent = opts.ok || 'OK';
+      $('#dialogOk').className = opts.danger ? 'primary danger-bg' : 'primary';
+      dlg.classList.remove('hidden');
+      (opts.input != null ? inp : $('#dialogOk')).focus();
+      const done = (v) => {
+        dlg.classList.add('hidden');
+        $('#dialogOk').onclick = $('#dialogCancel').onclick = inp.onkeydown = null;
+        resolve(v);
+      };
+      $('#dialogOk').onclick = () => done(opts.input != null ? inp.value.trim() || null : true);
+      $('#dialogCancel').onclick = () => done(opts.input != null ? null : false);
+      inp.onkeydown = (e) => {
+        if (e.key === 'Enter') $('#dialogOk').click();
+      };
+    });
+  }
+
+  let downloadsApi;
+  async function download(name, content, type) {
+    // Внутри чата Claude файлы сохраняются через платформу (с подтверждением пользователя).
+    if (window.claude && typeof window.claude.use === 'function') {
+      if (downloadsApi === undefined) {
+        try {
+          downloadsApi = await window.claude.use('downloads');
+        } catch (e) {
+          downloadsApi = null;
+        }
+      }
+      if (downloadsApi) {
+        try {
+          await downloadsApi.save({ filename: name, data: content });
+          toast('Файл сохранён');
+        } catch (e) {
+          if (e && e.code === 'declined') return;
+          showCopy(name, content);
+        }
+        return;
+      }
+      return showCopy(name, content);
+    }
     const blob = new Blob([content], { type: type || 'text/csv;charset=utf-8' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
@@ -92,6 +146,21 @@
       a.remove();
     }, 100);
   }
+  function showCopy(name, content) {
+    $('#copyTitle').textContent = name;
+    $('#copyText').value = content.replace(/^\uFEFF/, '');
+    $('#copyDialog').classList.remove('hidden');
+  }
+  $('#copyClose').addEventListener('click', () => $('#copyDialog').classList.add('hidden'));
+  $('#copyBtn').addEventListener('click', async () => {
+    try {
+      await navigator.clipboard.writeText($('#copyText').value);
+      toast('Скопировано — вставьте в Excel или текстовый файл');
+    } catch (e) {
+      $('#copyText').select();
+      toast('Выделено — нажмите Ctrl+C');
+    }
+  });
   const expById = () => Object.fromEntries(state.expected.map((e) => [e.id, e]));
 
   // ---------- Вкладки ----------
@@ -164,11 +233,18 @@
           msg(box, 'warn', 'Загружаю модуль чтения Excel…');
           await loadScript(XLSX_URL);
         }
-        const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false });
+        const wb = window.XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: true });
         const ws = wb.Sheets[wb.SheetNames[0]];
+        const pad = (n) => String(n).padStart(2, '0');
+        // ячейки-даты берём как даты (а не как текст в формате ячейки, который бывает американским)
+        const cell = (v) =>
+          v instanceof Date
+            ? `${v.getFullYear()}-${pad(v.getMonth() + 1)}-${pad(v.getDate())}` +
+              (v.getHours() || v.getMinutes() ? ` ${pad(v.getHours())}:${pad(v.getMinutes())}` : '')
+            : String(v).trim();
         const rows = window.XLSX.utils
-          .sheet_to_json(ws, { header: 1, raw: false, defval: '' })
-          .map((r) => r.map((v) => String(v).trim()))
+          .sheet_to_json(ws, { header: 1, raw: true, defval: '' })
+          .map((r) => r.map(cell))
           .filter((r) => r.some((v) => v));
         box.innerHTML = '';
         startMapping(rows, file.name);
@@ -176,7 +252,7 @@
         const buf = await file.arrayBuffer();
         let text = new TextDecoder('utf-8').decode(buf);
         // выгрузки старых систем бывают в windows-1251 / windows-874 (тайский)
-        if (text.includes('�')) {
+        if (text.includes('\uFFFD')) {
           const enc = /[฀-๿]/.test(new TextDecoder('windows-874').decode(buf.slice(0, 4000))) ? 'windows-874' : 'windows-1251';
           text = new TextDecoder(enc).decode(buf);
         }
@@ -320,11 +396,11 @@
         .join('') +
       '</tbody></table>';
   }
-  $('#importsList').addEventListener('click', (e) => {
+  $('#importsList').addEventListener('click', async (e) => {
     const id = e.target.dataset && e.target.dataset.delImport;
     if (!id) return;
     const n = state.transactions.filter((t) => t.source === id).length;
-    if (!confirm(`Удалить выписку и ${n} её операций (включая сделанные сопоставления)?`)) return;
+    if (!(await ask(`Удалить выписку и ${n} её операций (включая сделанные сопоставления)?`, { ok: 'Удалить', danger: true }))) return;
     state.transactions = state.transactions.filter((t) => t.source !== id);
     state.imports = state.imports.filter((i) => i.id !== id);
     save();
@@ -669,7 +745,7 @@
     $$('#txTable tr.selected').forEach((tr) => tr.classList.remove('selected'));
   }
 
-  $('#drawer').addEventListener('click', (e) => {
+  $('#drawer').addEventListener('click', async (e) => {
     const t = getTx(openTxId);
     if (!t) return;
     const ds = e.target.dataset || {};
@@ -683,7 +759,7 @@
       t.locked = true;
     } else if ('reset' in ds) resetTx(t);
     else if ('mkrule' in ds) {
-      const text = prompt('Правило: если текст содержит…', t.counterparty || t.description.slice(0, 30));
+      const text = await ask('Новое правило: если текст операции содержит…', { input: t.counterparty || t.description.slice(0, 30), ok: 'Создать' });
       if (!text) return;
       const cat = t.category || state.categories[0];
       state.rules.push({ id: uid('r'), text, field: 'any', direction: t.amount > 0 ? 'in' : 'out', action: 'categorize', category: cat });
@@ -727,6 +803,11 @@
 
   document.addEventListener('keydown', (e) => {
     const typing = /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName);
+    if (!$('#dialog').classList.contains('hidden')) {
+      if (e.key === 'Escape') $('#dialogCancel').click();
+      return;
+    }
+    if (e.key === 'Escape' && !$('#copyDialog').classList.contains('hidden')) return $('#copyDialog').classList.add('hidden');
     if (e.key === 'Escape') {
       if (typing) document.activeElement.blur();
       else closeDrawer();
@@ -808,8 +889,8 @@
     save();
     renderAll();
   });
-  $('#expClear').addEventListener('click', () => {
-    if (!state.expected.length || !confirm('Удалить все ожидаемые поступления? Связи операций с ними будут сброшены.')) return;
+  $('#expClear').addEventListener('click', async () => {
+    if (!state.expected.length || !(await ask('Удалить все ожидаемые поступления? Связи операций с ними будут сброшены.', { ok: 'Удалить', danger: true }))) return;
     state.transactions.forEach((t) => {
       if (t.status === 'matched' || t.status === 'review') resetTx(t);
     });
@@ -954,12 +1035,12 @@
     save();
     renderAll();
   });
-  $('#catList').addEventListener('click', (e) => {
+  $('#catList').addEventListener('click', async (e) => {
     const i = e.target.dataset && e.target.dataset.delCat;
     if (i == null) return;
     const c = state.categories[Number(i)];
     const n = state.transactions.filter((t) => t.category === c).length;
-    if (n && !confirm(`Категория «${c}» назначена ${n} операциям. Удалить её из списка? (у операций она останется)`)) return;
+    if (n && !(await ask(`Категория «${c}» назначена ${n} операциям. Удалить её из списка? (у операций она останется)`, { ok: 'Удалить', danger: true }))) return;
     state.categories.splice(Number(i), 1);
     save();
     renderAll();
@@ -978,26 +1059,26 @@
     try {
       const data = JSON.parse(await f.text());
       if (!Array.isArray(data.transactions)) throw new Error('это не резервная копия этого приложения');
-      if (!confirm('Заменить текущие данные содержимым резервной копии?')) return;
-      localStorage.setItem(STORE_KEY, JSON.stringify(data));
-      state = load();
+      if (!(await ask('Заменить текущие данные содержимым резервной копии?', { ok: 'Заменить' }))) return;
+      state = load(data);
+      save();
       renderAll();
       toast('Данные восстановлены');
     } catch (err) {
       toast('Ошибка: ' + err.message);
     }
   });
-  $('#resetBtn').addEventListener('click', () => {
-    if (!confirm('Удалить все операции, ожидаемые поступления, правила и категории из этого браузера?')) return;
-    localStorage.removeItem(STORE_KEY);
-    state = load();
+  $('#resetBtn').addEventListener('click', async () => {
+    if (!(await ask('Удалить все операции, ожидаемые поступления, правила и категории из этого браузера?', { ok: 'Удалить всё', danger: true }))) return;
+    state = load({});
+    save();
     selected.clear();
     closeDrawer();
     renderAll();
   });
 
-  $('#demoBtn').addEventListener('click', () => {
-    if (state.transactions.length && !confirm('Добавить демо-данные к текущим?')) return;
+  $('#demoBtn').addEventListener('click', async () => {
+    if (state.transactions.length && !(await ask('Добавить демо-данные к текущим?', { ok: 'Добавить' }))) return;
     loadDemo(window.DEMO_STATEMENT, window.DEMO_EXPECTED);
   });
   function loadDemo(st, ex) {

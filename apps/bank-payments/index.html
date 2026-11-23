@@ -89,6 +89,9 @@
   .score { font-weight: 700; font-variant-numeric: tabular-nums; width: 34px; text-align: center; }
   .bulk { background: var(--accent-weak); padding: 8px 12px; border-radius: 6px; margin-bottom: 8px; }
   .hidden { display: none !important; }
+  .overlay { position: fixed; inset: 0; background: rgba(20,24,33,.35); display: flex; align-items: center; justify-content: center; z-index: 50; }
+  .dialog { background: var(--panel); border-radius: 10px; padding: 18px; width: min(440px, 92vw); box-shadow: 0 12px 40px rgba(0,0,0,.2); }
+  button.danger-bg { background: var(--red); border-color: var(--red); }
   .empty { text-align: center; padding: 40px; color: var(--muted); }
   .toast { position: fixed; bottom: 20px; left: 50%; transform: translateX(-50%); background: #1d2330; color: #fff; padding: 10px 16px; border-radius: 6px; z-index: 30; opacity: 0; transition: opacity .2s; pointer-events: none; }
   .toast.show { opacity: 1; }
@@ -98,6 +101,7 @@
 <body>
 <header>
   <h1>Банковские платежи</h1>
+  <span class="badge b-review" title="Данные хранятся только в этом браузере, никуда не передаются и ни к чему не подключены">тестовый режим</span>
   <nav id="tabs">
     <button data-tab="import">1. Выписки</button>
     <button data-tab="tx">2. Платежи <span class="count hidden" id="reviewCount"></span></button>
@@ -266,6 +270,25 @@
 
 <aside class="drawer" id="drawer" aria-label="Карточка платежа"></aside>
 <div class="toast" id="toast"></div>
+<div class="overlay hidden" id="dialog" role="dialog" aria-modal="true">
+  <div class="dialog">
+    <div id="dialogText"></div>
+    <input id="dialogInput" class="hidden" style="width:100%;margin-top:10px">
+    <div class="row" style="margin-top:14px;justify-content:flex-end">
+      <button id="dialogCancel">Отмена</button><button id="dialogOk" class="primary">OK</button>
+    </div>
+  </div>
+</div>
+<div class="overlay hidden" id="copyDialog" role="dialog" aria-modal="true">
+  <div class="dialog" style="width:min(760px,95vw)">
+    <b id="copyTitle"></b>
+    <p class="small muted">Сохранение файла здесь недоступно — скопируйте содержимое и вставьте в Excel (или сохраните в текстовый файл с этим именем).</p>
+    <textarea id="copyText" readonly style="min-height:260px"></textarea>
+    <div class="row" style="margin-top:10px;justify-content:flex-end">
+      <button id="copyClose">Закрыть</button><button id="copyBtn" class="primary">Копировать</button>
+    </div>
+  </div>
+</div>
 
 <script src="core.js"></script>
 <script src="samples/demo-data.js"></script>
